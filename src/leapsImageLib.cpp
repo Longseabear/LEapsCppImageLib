@@ -1,41 +1,78 @@
 
 #include "leapsImageLib.h"
+#include "converter.h"
 #include <iostream>
 using namespace std;
 using namespace LeapsImageLib;
 
-// Image[Y][X] []
-LeapsImageLib::Image::Image(): width(0), height(0){}
-LeapsImageLib::Image::Image(uint w, uint h): width(w), height(h){}
-LeapsImageLib::Image::Image(const char* filename){
+template <>
+LeapsImageLib::Image<LeapsImageLib::uint8_t>::Image(const char* filename){
     unsigned error = lodepng::decode(raw, width, height, filename);
+    setChannel(4);
+    setColorFormat(CF_RGBA_8U);
+
     if(error){
         std::cout << "decoder error " << error << ": " << lodepng_error_text(error) << std::endl;
         throw exception();
     }
 }
-uchar* Image::ptr(uint row){
-    return &raw[0] + ((width * row) << 2);
+template <>
+LeapsImageLib::Image<_Float64>::Image(const char* filename){
+    auto temp_image = Image<uint8_t>(filename);
+
+    unsigned w = temp_image.getWidth();
+    unsigned h = temp_image.getHeight();
+    unsigned c = temp_image.getChannel();
+    raw.resize((w*h*c));
+
+    setWidth(temp_image.getWidth());
+    setHeight(temp_image.getHeight());
+    setChannel(temp_image.getChannel());
+    setColorFormat(CF_RGBA_64F);
+    
+    uint8_t* ptr = temp_image.ptr(0);
+    for(int i=0; i<width*height; i++) raw[i] = (_Float64)ptr[i] / 255.;
 }
-uchar* Image::ptr(uint row, uint col){
-    return &raw[0] + (width * row * 4) + col * 4;
-}
-void Image::save(const char* filename){
-    unsigned error = lodepng::encode(filename, raw, width, height);
-    if(error) std::cout << "encoder error " << error << ": "<< lodepng_error_text(error) << std::endl;
+template <>
+LeapsImageLib::Image<_Float32>::Image(const char* filename){
+auto temp_image = Image<uint8_t>(filename);
+
+    unsigned w = temp_image.getWidth();
+    unsigned h = temp_image.getHeight();
+    unsigned c = temp_image.getChannel();
+    raw.resize((w*h*c));
+ 
+    setWidth(temp_image.getWidth());
+    setHeight(temp_image.getHeight());
+    setChannel(temp_image.getChannel());
+    setColorFormat(CF_RGBA_32F);
+    
+    uint8_t* ptr = temp_image.ptr(0);
+    for(int i=0; i<width*height; i++) raw[i] = (_Float32)ptr[i] / 255.;
 }
 
-using namespace LeapsImageLib;
-int main(int argc, char *argv[])
-{
-    const char *filename = argc > 1 ? argv[1] : "../Lenna.png";
-    printf("hello world");
-    Image img = Image(filename);
-    for(int i=0;i<img.width;i++){
-        auto pixel = img.ptr(0, i);
-        pixel[0] = 0;
-        pixel[1] = 0;
-        pixel[2] = 0;
+//#define rgb2yuv(R,G,B) ((((((66*R+129*G+25*B+128)>>8)+16)<<8)|(((112*R-94*G-18*B+128)>>8)+128))<<8|(((-38*R-74*G+112*B+128)>>8)+128))
+
+/*
+    args: img(CF_RGBA_8U)
+    return: img(CF_GRAY_8U)
+*/
+Image<uint8_t> im_RGBA8UToGRAY8(Image<uint8_t>& img){
+    if(img.getColorFormat() != CF_RGBA_8U){
+        std::cout << "RGBA_8U_to_GRAY_8U function only support CF_RGBA_8U color format and but: " \
+        << colorFormatToString[img.getColorFormat()] << endl;
+        throw exception();
     }
-    img.save("../output.png");
+
+    Image<uint8_t> out = Image<uint8_t>(img.getWidth(), img.getHeight(), img.getChannel(), CF_GRAY_8U);
+    auto dst = out.ptr(0);
+    uint32_t* src = (uint32_t*)img.ptr(0);    
+    int bytelen = img.getWidth() * img.getHeight() * img.getChannel();
+
+    for(int i=0; i<bytelen; ++i){
+        RGBA8UToGRAY8(src[i], dst[i]);
+    }
+
+    return out;
 }
+
